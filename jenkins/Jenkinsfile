@@ -1,0 +1,62 @@
+pipeline {
+    agent any
+
+    environment {
+        S3_BUCKET = 'my-s3-bucket-for-jenkins-pipeline-setup'
+        S3_KEY = 'my-app.zip'
+        ENVIRONMENT_NAME = 'Linux-based-web-application-env'
+        APPLICATION_NAME = 'linux-based-web-application'
+        AWS_REGION = 'us-east-1'
+        VERSION_LABEL = "app-version-${BUILD_NUMBER}"  // Unique version label using Jenkins build number
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git url: 'https://github.com/ManojKamatam/Beanstalk_Deployments_maintainingVersions.git', branch: 'main'
+            }
+        }
+        
+        stage('Upload to S3') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    sh "aws s3 cp application.zip s3://${S3_BUCKET}/${S3_KEY} --region ${AWS_REGION}"
+                }
+            }
+        }
+
+        stage('Create Application Version') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    sh """
+                        aws elasticbeanstalk create-application-version \
+                        --application-name ${APPLICATION_NAME} \
+                        --version-label ${VERSION_LABEL} \
+                        --source-bundle S3Bucket=${S3_BUCKET},S3Key=${S3_KEY} \
+                        --region ${AWS_REGION}
+                    """
+                }
+            }
+        }
+
+        stage('Update Elastic Beanstalk Environment') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    sh """
+                        aws elasticbeanstalk update-environment \
+                          --application-name ${APPLICATION_NAME} \
+                          --environment-name ${ENVIRONMENT_NAME} \
+                          --version-label ${VERSION_LABEL} \
+                          --region ${AWS_REGION}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Deployment process completed.'
+        }
+    }
+}
